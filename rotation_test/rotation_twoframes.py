@@ -53,8 +53,6 @@ def create_list_of_quaternions(timestamp1:int, timestamp2:int):
 def get_mid_quaternion(q1:Quaternion, q2:Quaternion, tol:float=1e-3): 
     if Quaternion.absolute_distance(q1,q2) < tol:
         return [q1, q2]
-    #if niter == n: 
-    #    return [q1,q2]
     q_mid = Quaternion.slerp(q1, q2)
     left_points = get_mid_quaternion(q1, q_mid)
     right_points = get_mid_quaternion(q_mid, q2)
@@ -76,12 +74,20 @@ def compute_frames(qs:list[Quaternion], image):
 
         for y in range(DIM[1]):
             for x in range(DIM[0]): 
-                p0 = np.array([x, y, 1], dtype=np.float32).reshape(1,1,2)
+
+                # undistort point
+                p0 = np.array([x, y], dtype=np.float32).reshape(1,1,2)
+                p0 = cv2.fisheye.undistortPoints(p0, CAM_K, CAM_D) 
+                p0 = np.array([p0[0][0][0], p0[0][0][1], 1])
 
                 p = H @ p0
+                
+                # distort back point 
+                _p = np.array([p[0], p[1]]).reshape(1,1,2)
+                _p = cv2.fisheye.distortPoints(_p, CAM_K, CAM_D)
 
-                x_map[y,x] = p[0]
-                y_map[y,x] = p[1]
+                x_map[y,x] = _p[0][0][0]
+                y_map[y,x] = _p[0][0][1]
 
         image = cv2.remap(image, x_map, y_map, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)
         frames.append(image)
