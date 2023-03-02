@@ -96,8 +96,8 @@ def main():
     timestamp2 = int(image2_name)
 
     #load images 
-    image1 = cv2.imread(f'{image1_name}.png', cv2.IMREAD_UNCHANGED)
-    image2 = cv2.imread(f'{image2_name}.png', cv2.IMREAD_UNCHANGED)
+    image1 = cv2.imread(f'./old_images/{image1_name}.png', cv2.IMREAD_UNCHANGED)
+    image2 = cv2.imread(f'./old_images/{image2_name}.png', cv2.IMREAD_UNCHANGED)
 
     height, width = image1.shape
 
