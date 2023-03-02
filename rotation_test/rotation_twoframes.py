@@ -76,7 +76,7 @@ def compute_frames(qs:list[Quaternion], image):
 
         for y in range(DIM[1]):
             for x in range(DIM[0]): 
-                p0 = np.array([x, y, 1])
+                p0 = np.array([x, y, 1], dtype=np.float32).reshape(1,1,2)
 
                 p = H @ p0
 
