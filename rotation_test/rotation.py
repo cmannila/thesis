@@ -127,6 +127,8 @@ def main():
     print(result_path)
     os.mkdir(result_path)
 
+    frames_fom_before = None 
+
     for i,frame in tqdm(list(enumerate(frames[:-1]))): 
         if i==0: # just skip the first frame ? 
             timestamp1 = int(frame.replace(".png",""))  
@@ -143,12 +145,12 @@ def main():
                     avg_image = cv2.addWeighted(inbetween_frames[i], alpha, avg_image, beta, 0.0)
 
             cv2.imwrite(f'{result_path}/{frame}', avg_image)
+            frames_fom_before = inbetween_frames
         else:
-            timestamp0 = int(frames[i-1].replace(".png", ""))
             timestamp1 = int(frame.replace(".png",""))
             timestamp2 = int(frames[i+1].replace(".png", ""))
 
-            frames1 = get_frames(timestamp1=timestamp0, timestamp2=timestamp1)
+            frames1 = frames_fom_before
             frames2 = get_frames(timestamp1=timestamp1, timestamp2=timestamp2)
 
             #image = cv2.imread(frame, cv2.IMREAD_UNCHANGED)

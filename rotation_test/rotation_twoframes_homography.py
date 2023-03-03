@@ -25,7 +25,7 @@ def load_data(filename):
 
     return timestamps, positions, quaternions
 
-timestamps, position, quaternions = load_data('/home/cm2113/workspace/thesis/rotation_test/data.csv')
+timestamps, position, quaternions = load_data('data.csv')
 
 def get_quaternion(timestamp:int): 
     time_diff = np.array(timestamps) - timestamp
@@ -38,10 +38,9 @@ def get_quaternion(timestamp:int):
     assert t1 < timestamp, "t1: {}, timestamp: {}".format(t1, timestamp)
     assert t2 > timestamp, "t2: {}, timestamp: {}".format(t2, timestamp)
 
-    q1 = quaternions[sign_switch_idx].normalised
-    q2 = quaternions[sign_switch_idx + 1].normalised
+    q1 = quaternions[sign_switch_idx]
+    q2 = quaternions[sign_switch_idx + 1]
     q_ = Quaternion.slerp(q1, q2, (timestamp - t1) / (t2 - t1))
-    q_ = q_.normalised
 
     return q_, sign_switch_idx
 
@@ -54,7 +53,7 @@ def create_list_of_quaternions(timestamp1:int, timestamp2:int):
 def get_mid_quaternion(q1:Quaternion, q2:Quaternion, tol:float=1e-3): 
     if Quaternion.absolute_distance(q1,q2) < tol:
         return [q1, q2]
-    q_mid = Quaternion.slerp(q1, q2).normalised
+    q_mid = Quaternion.slerp(q1, q2)
     left_points = get_mid_quaternion(q1, q_mid)
     right_points = get_mid_quaternion(q_mid, q2)
     return left_points + right_points[1:]
@@ -64,9 +63,6 @@ def compute_frames(qs:list[Quaternion], image):
     frames.append(image)
      
     for i in tqdm(range(len(qs)-1)): 
-        #q_delta = qs[i+1]*qs[i].inverse
-        #R = q_delta.rotation_matrix 
-        #R_inv = np.linalg.inv(R)
         R1 = qs[i].rotation_matrix
         R2 = qs[i+1].rotation_matrix 
 
@@ -81,15 +77,14 @@ def compute_frames(qs:list[Quaternion], image):
 
                 # undistort point
                 p0 = np.array([x, y], dtype=np.float32).reshape(1,1,2)
-                #p0 = cv2.fisheye.undistortPoints(p0, CAM_K, CAM_D) 
+                p0 = cv2.fisheye.undistortPoints(p0, CAM_K, CAM_D)
                 p0 = np.array([p0[0][0][0], p0[0][0][1], 1])
 
                 p = H @ p0
-                #p = R @ p0 
-
+                
                 # distort back point 
                 _p = np.array([p[0], p[1]]).reshape(1,1,2)
-                #_p = cv2.fisheye.distortPoints(_p, CAM_K, CAM_D)
+                _p = cv2.fisheye.distortPoints(_p, CAM_K, CAM_D)
 
                 x_map[y,x] = _p[0][0][0]
                 y_map[y,x] = _p[0][0][1]
@@ -117,19 +112,10 @@ def main():
     # load quaternions 
     qs = create_list_of_quaternions(timestamp1=timestamp1, timestamp2=timestamp2)
     
-    #q1,_ = get_quaternion(timestamp1)
-    #q2,_= get_quaternion(timestamp2)
-
-    #q_delta1 = [q2*q1.inverse] 
-    #q_delta2 = [q1*q2.inverse] 
-
     # compute frames in two directions 
     frames_image1 = compute_frames(qs, image1)
     frames_image2 = compute_frames(qs[::-1], image2)
     frames_image2 = frames_image2[::-1]
-
-    cv2.imshow('frame1', frames_image1[0])
-    cv2.imshow('frame2', frames_image2[0])
 
     assert len(frames_image1)==len(frames_image2), f'Length of frames_image1: {len(frames_image1)} and length of frames_image2: {len(frames_image2)}'
 
