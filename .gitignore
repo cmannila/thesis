@@ -1,0 +1,8 @@
+# OS generated files #
+######################
+.DS_Store
+
+# Result files #######
+######################
+results_from_testing_friday0303/
+old_results/
