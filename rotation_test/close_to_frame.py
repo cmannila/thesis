@@ -97,23 +97,36 @@ def compute_frames_KRK(timestamp:int, qs:list[Quaternion]):
 
     frames.append(image) 
     for i in range(len(qs)-1): 
-        R1 = qs[i].rotation_matrix
-        R2 = qs[i+1].rotation_matrix 
+        #R1 = qs[i].rotation_matrix
+        #R2 = qs[i+1].rotation_matrix 
 
-        H, _ = cv2.findHomography(np.array([[0,0,1],[0,1,1],[1,1,1],[1,0,1]]),
-                            np.array([[0,0,1],[0,1,1],[1,1,1],[1,0,1]]).dot(R2).dot(np.linalg.inv(R1)))
+        #H, _ = cv2.findHomography(np.array([[0,0,1],[0,1,1],[1,1,1],[1,0,1]]),
+        #                    np.array([[0,0,1],[0,1,1],[1,1,1],[1,0,1]]).dot(R2).dot(np.linalg.inv(R1)))
+
+        q_delta = qs[i+1]/qs[i]  
+        q_delta = q_delta.normalised 
+        if i == 0: 
+            print(f'q_delta angle: {q_delta.angle} q_delta axis: {q_delta.axis}')
+        R_delta = q_delta.rotation_matrix #R2 @ np.linalg.inv(R1)
 
         x_map = np.zeros((DIM[1], DIM[0]), dtype=np.float32)
         y_map = np.zeros((DIM[1], DIM[0]), dtype=np.float32)
 
         for y in range(DIM[1]):
             for x in range(DIM[0]): 
-                p0 = np.array([x, y, 1])
+                # undistort point
+                p0 = np.array([x, y], dtype=np.float32).reshape(1,1,2)
+                p0 = cv2.fisheye.undistortPoints(p0, CAM_K, CAM_D)
+                p0 = np.array([p0[0][0][0], p0[0][0][1], 1])
 
-                p = H @ p0
+                p = R_delta @ p0
+                
+                # distort back point 
+                _p = np.array([p[0], p[1]]).reshape(1,1,2)
+                _p = cv2.fisheye.distortPoints(_p, CAM_K, CAM_D)
 
-                x_map[y,x] = p[0]
-                y_map[y,x] = p[1]
+                x_map[y,x] = _p[0][0][0]
+                y_map[y,x] = _p[0][0][1]
 
         image = cv2.remap(image, x_map, y_map, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)
         frames.append(image)
