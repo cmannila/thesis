@@ -4,7 +4,16 @@
 
 # Result files #######
 ######################
-rotation_test/results_from_testing_friday0303/
-rotation_test/old_results/
-rotation_test/results_from_testing_tuesday0703/
-rotation_test/results_from_testing_thursday0903/
+old_src/results_from_testing_friday0303/
+old_src/old_results/
+old_src/results_from_testing_tuesday0703/
+old_src/results_from_testing_thursday0903/
+
+# OLD SOURCE ########
+#####################
+old_src/ 
+
+# Datasets ###########
+#####################
+datasets/
+
