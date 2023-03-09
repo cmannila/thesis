@@ -4,6 +4,8 @@ import cv2
 from pyquaternion import Quaternion
 from tqdm import tqdm 
 import os 
+import concurrent.futures
+import multiprocessing
 
 # ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 # ------------------------------------------    ALL THIS IS SEQUENCE DEPENDENT ! --------------------------------------------------------------------------------------------------------------------------------------------------
@@ -132,7 +134,62 @@ def compute_frames_KRK(timestamp:int, qs:list[Quaternion]):
         frames.append(image)
     return frames
 
-def create_frames(timestamp1:int, timestamp0:int): 
+def compute_frames_KRK_faster(timestamp:int, qs:list[Quaternion]): 
+    image = cv2.imread(f'{PATH}{str(timestamp)}.png', cv2.IMREAD_UNCHANGED)
+    frames = []
+
+    frames.append(image) 
+    for i in range(len(qs)-1): 
+        #R1 = qs[i].rotation_matrix
+        #R2 = qs[i+1].rotation_matrix 
+
+        #H, _ = cv2.findHomography(np.array([[0,0,1],[0,1,1],[1,1,1],[1,0,1]]),
+        #                    np.array([[0,0,1],[0,1,1],[1,1,1],[1,0,1]]).dot(R2).dot(np.linalg.inv(R1)))
+
+        q_delta = qs[i+1]/qs[i]  
+        q_delta = q_delta.normalised 
+        if i == 0: 
+            print(f'q_delta angle: {q_delta.angle} q_delta axis: {q_delta.axis}')
+        R_delta = q_delta.rotation_matrix #R2 @ np.linalg.inv(R1)
+        
+        R_delta_inv = cv2.Rodrigues(R_delta)[0].T
+
+        x_map = np.zeros((DIM[1], DIM[0]), dtype=np.float32)
+        y_map = np.zeros((DIM[1], DIM[0]), dtype=np.float32)
+        # Generate the undistortion and rectification maps
+        # map1, map2 = cv2.fisheye.initUndistortRectifyMap(CAM_K, CAM_D, R_delta_inv, CAM_K, DIM, cv2.CV_32FC1)
+
+        # Create a grid of pixel coordinates
+        grid_x, grid_y = np.meshgrid(np.arange(DIM[0]), np.arange(DIM[1]))
+
+        # Convert the grid to a list of undistorted points
+        flat_x = grid_x.flatten()
+        flat_y = grid_y.flatten()
+
+        # stack flat_x and flat_y horizontally to create a 2D array with 2 channels
+        points = np.hstack((flat_x.reshape(-1, 1), flat_y.reshape(-1, 1))).astype(np.float32)
+        #paoints = np.arry([grid_x.flatten(), grid_y.flatten()], dtype=np.float32)
+        print(points.shape)
+        undistorted_points = cv2.fisheye.undistortPoints(points, CAM_K, CAM_D)
+
+        # Apply the rotation to the undistorted points
+        rotated_points = cv2.transform(undistorted_points.reshape(-1, 1, 2), R_delta_inv).reshape(-1, 2)
+
+        # Distort the rotated points
+        distorted_points = cv2.fisheye.distortPoints(rotated_points.reshape(-1, 1, 2), CAM_K, CAM_D).reshape(-1, 2)
+
+        # Convert the distorted points back to pixel coordinates
+        distorted_x, distorted_y = distorted_points[:, 0], distorted_points[:, 1]
+        x_map = distorted_x.reshape(DIM[1], DIM[0])
+        y_map = distorted_y.reshape(DIM[1], DIM[0])
+
+        # Apply the maps to the image
+        image = cv2.remap(image, x_map, y_map, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)
+        
+        frames.append(image)
+    return frames
+
+def create_frames(timestamp1:int, qs:list[Quaternion]): 
     # for now use dt = 1/4*exp_time 
     dt = compute_dt(timestamp1)
     n = 10 # the number of frames on EACH side
@@ -143,7 +200,7 @@ def create_frames(timestamp1:int, timestamp0:int):
     #forward_frames = compute_frames_KRK(timestamp1, qs_forward)
     #backward_frames = compute_frames_KRK(timestamp1, qs_backward)
     #backward_frames = backward_frames[::-1] 
-    qs = create_list_of_quaternions(timestamp1, timestamp0)
+    # qs = create_list_of_quaternions(timestamp1, timestamp0)
 
 
     frames = compute_frames_KRK(timestamp1, qs) #backward_frames # + forward_frames[1:] 
@@ -168,13 +225,14 @@ def nextnonexistent(f):
         fnew = '%s_%i%s' % (root, i, ext)
     return fnew
 
-def create_list_of_quaternions(timestamp1:int, timestamp2:int): 
+def create_list_of_quaternions(timestamp1:int, timestamp2:int, dt:float): 
     q1 = get_quaternion(timestamp1)
-    q2 = get_quaternion(timestamp2)
+    q2 = get_quaternion(timestamp1-dt)
     
     # get the mid quaternion of the two 
-    q_mid = Quaternion.slerp(q1,q2)
-    qs = get_mid_quaternion(q1,q_mid)
+    #q_mid = Quaternion.slerp(q1,q2)
+    #q_mid = Quaternion.slerp(q1, q_mid)
+    qs = get_mid_quaternion(q1,q2)
     return qs
 
 def get_mid_quaternion(q1:Quaternion, q2:Quaternion, tol:float=1e-3): 
@@ -191,6 +249,10 @@ RESULT_PATH = nextnonexistent(RESULT_PATH)
 print(RESULT_PATH)
 os.mkdir(RESULT_PATH)
 
+def create_frames_parallel(frame,quats):
+    timestamp = int(frame.replace(".png", ""))
+    create_frames(timestamp, quats[timestamp])
+
 def main():
     #image0 = 1520530327700094100
     #image1 = 1520530327750096100
@@ -198,11 +260,36 @@ def main():
     #frames = [image0, image1, image2]
 
     frames = sorted(os.listdir(os.path.join(PATH)))
-
+    quats = {}
+    print('[INFO] Create list of quaternions for each image, remember i=0 is the quats for the second image in the sequence')
     for i in tqdm(range(len(frames)-1)): 
         timestamp0 = int(frames[i].replace(".png", ""))
         timestamp1 = int(frames[i+1].replace(".png", ""))
-        create_frames(timestamp1, timestamp0)
+        dt = (timestamp1-timestamp0)/2
+        qs = create_list_of_quaternions(timestamp1, timestamp0, dt)
+        quats[timestamp1] = qs
+        
+    print('[INFO] creating frames')
+    """with concurrent.futures.ThreadPoolExecutor() as executor:
+        futures = []
+        for i in tqdm(range(len(frames)-1)):
+            timestamp = int(frames[i+1].replace(".png", ""))
+            futures.append(executor.submit(create_frames_parallel, timestamp, quats[i]))
+        for future in concurrent.futures.as_completed(futures):
+            pass
+    
+    """
+    with multiprocessing.Pool() as pool:
+        results = []
+        for frame in frames[1:]:
+            result = pool.apply_async(create_frames_parallel, args=(frame,quats,))
+            results.append(result)
+        for result in results:
+            result.wait()
+
+    """for i in tqdm(range(len(frames)-1)): 
+        timestamp = int(frames[i+1].replace(".png", ""))
+        create_frames(timestamp, quats[i])"""
 
 
 if __name__ == '__main__': 
