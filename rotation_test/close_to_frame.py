@@ -37,12 +37,12 @@ def get_exosure_hash(filename):
     return hash
 
 exposure_times = get_exosure_hash('times.txt')
-timestamps, position, quaternions = load_gt_data('/home/cm2113/workspace/thesis/rotation_test/data.csv')
-
-FX = 190.97847715128717
-FY = 190.9733070521226
-CX = 254.93170605935475
-CY = 256.8974428996504
+#timestamps, position, quaternions = load_gt_data('/home/cm2113/workspace/thesis/rotation_test/data.csv')
+timestamps, position, quaternions = load_gt_data('./data.csv')
+FX = 254.93170605935475 # 190.97847715128717
+FY = 256.8974428996504 # 190.9733070521226
+CX = 190.97847715128717 # 254.93170605935475
+CY = 190.9733070521226 # 256.8974428996504
 
 CAM_K = np.array([[FX, 0, CX], [0, FY, CY], [0, 0, 1]])
 CAM_D = np.array([0.0034823894022493434, 0.0007150348452162257, -0.0020532361418706202, 0.00020293673591811182])
@@ -204,5 +204,36 @@ def main():
         timestamp1 = int(frames[i+1].replace(".png", ""))
         create_frames(timestamp1, timestamp0)
 
-main()
+
+if __name__ == '__main__': 
+    # test distorsion model: 
+    test_distorsion = False 
+    if test_distorsion: 
+        image = cv2.imread('./image_sequence/1520530327850099100.png', cv2.IMREAD_UNCHANGED)
+        x_map = np.zeros((DIM[1], DIM[0]), dtype=np.float32)
+        y_map = np.zeros((DIM[1], DIM[0]), dtype=np.float32)
+        cv2.imshow('original', image)
+        for y in range(DIM[1]):
+            for x in range(DIM[0]): 
+                # undistort point
+                p0 = np.array([x, y], dtype=np.float32).reshape(1,1,2)
+                p0 = cv2.fisheye.undistortPoints(p0, CAM_K, CAM_D)
+                p0 = np.array([p0[0][0][0], p0[0][0][1], 1])
+                
+                p = p0
+                #p = R_delta @ p0
+                
+                # distort back point 
+                _p = np.array([p[0], p[1]]).reshape(1,1,2)
+                _p = cv2.fisheye.distortPoints(_p, CAM_K, CAM_D)
+
+                x_map[y,x] = _p[0][0][0]
+                y_map[y,x] = _p[0][0][1]
+
+        image = cv2.remap(image, x_map, y_map, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)
+        cv2.imshow('back to undistorted', image)
+        cv2.waitKey(0)
+        cv2.destroyAllWindows
+    main()
+
 
