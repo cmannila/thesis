@@ -1,3 +1,4 @@
+import shutil
 import numpy as np
 import pandas as pd 
 import cv2
@@ -174,7 +175,7 @@ def create_frames_parallel(frame,quats, results_path):
 
 def main():
     frames = sorted(os.listdir(os.path.join(PATH)))
-    divisions = [2]
+    divisions = [8]
     top_result_path = '/home/cm2113/workspace/thesis/results/tumvi_room1_blur'
     if not os.path.exists(top_result_path):
         os.mkdir(top_result_path)
@@ -194,6 +195,9 @@ def main():
             quats[timestamp1] = qs
             
         print('[INFO] creating frames')
+        # add first frame to the result folder - will not be blurred
+        shutil.copy(f'{PATH}{frames[0]}', f'{results_path}/{frames[0]}')
+
         with multiprocessing.Pool() as pool:
             results = []
             for frame in frames[1:]:
@@ -201,6 +205,8 @@ def main():
                 results.append(result)
             for result in results:
                 result.wait()
+        
+        print(f'[INFO] Created {len(os.listdir(results_path))} files')
 
     """for i in tqdm(range(len(frames)-1)): 
         timestamp = int(frames[i+1].replace(".png", ""))
