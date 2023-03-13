@@ -5,11 +5,17 @@ import cv2
 from pyquaternion import Quaternion
 from tqdm import tqdm 
 import os 
-import concurrent.futures
 import multiprocessing
+from load_camera import camera 
+import argparse
 
 # ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 # ------------------------------------------    ALL THIS IS SEQUENCE DEPENDENT ! --------------------------------------------------------------------------------------------------------------------------------------------------
+DATASETS_PATH = '/home/cm2113/workspace/Datasets'
+CAM_SUB_PATH = '/dso/camchain.yaml'
+TIME_SUB_PATH = '/mav0/mocap0/data.csv'
+FRAMES_SUB_PATH = '/mav0/cam0/data/'
+
 
 def load_gt_data(filename):
     data = pd.read_csv(filename).sort_values(by=['#timestamp [ns]']).rename(columns={' p_RS_R_x [m]':'p_x', ' p_RS_R_y [m]':'p_y', ' p_RS_R_z [m]':'p_z', ' q_RS_w []':'q_w', ' q_RS_x []':'q_x', ' q_RS_y []':'q_y', ' q_RS_z []':'q_z' })
@@ -39,58 +45,66 @@ def get_exosure_hash(filename):
     hash = {key: value for key, value in zip(timestamps, exp_times)}
     return hash
 
-#exposure_times = get_exosure_hash('times.txt')
-#timestamps, position, quaternions = load_gt_data('/home/cm2113/workspace/thesis/rotation_test/data.csv')
-timestamps, position, quaternions = load_gt_data('/home/cm2113/workspace/thesis/datasets/tumvi_room1_512_16/data.csv')
-FX = 254.93170605935475 # 190.97847715128717
-FY = 256.8974428996504 # 190.9733070521226
-CX = 190.97847715128717 # 254.93170605935475
-CY = 190.9733070521226 # 256.8974428996504
+#timestamps, position, quaternions = load_gt_data(f'{DATASETS_PATH}{DATA_SUB_PATH}{TIME_SUB_PATH}')
 
-CAM_K = np.array([[FX, 0, CX], [0, FY, CY], [0, 0, 1]])
-CAM_D = np.array([0.0034823894022493434, 0.0007150348452162257, -0.0020532361418706202, 0.00020293673591811182])
-DIM = (512,512)
+class data_loader: 
+    def __init__(self, data_sub_path:str, top_result_path:str): 
+        # load essential data 
+        self.timestamps, self.positions, self.quaternions = load_gt_data(f'{DATASETS_PATH}{data_sub_path}{TIME_SUB_PATH}') 
+        self.cam = camera(f'{DATASETS_PATH}{data_sub_path}{CAM_SUB_PATH}')
+        self.top_result_path = top_result_path
+        if not os.path.exists(self.top_result_path):
+            os.mkdir(self.top_result_path)
+        self.dataset_name = os.path.basename(os.path.normpath(data_sub_path))
+        self.result_path = None 
+        self.long_data_path = f'{DATASETS_PATH}{data_sub_path}{FRAMES_SUB_PATH}'
+    
+    def __str__(self): 
+        return f'Timestamps: {self.timestamps[:10]}, Camera: {self.cam}, Dataset_name: {self.dataset_name}'
+    
+    def set_result_path(self, result_path:str):
+        self.result_path = result_path 
 
 # ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-def get_quaternions(timestamp:int, dt:float, n:int): 
+def get_quaternions(timestamp:int, dt:float, n:int, dl:data_loader): 
     qs = []
     for i in range(n):
         timestamp += i*dt
-        time_diff = timestamps-timestamp
+        time_diff = dl.timestamps-timestamp
         sign_switch_idx = int(np.where(np.diff(np.sign(time_diff)))[0]) 
 
-        t1 = timestamps[sign_switch_idx]
-        t2 = timestamps[sign_switch_idx + 1]
+        t1 = dl.timestamps[sign_switch_idx]
+        t2 = dl.timestamps[sign_switch_idx + 1]
 
         assert t1 < timestamp, "t1: {}, timestamp: {}".format(t1, timestamp)
         assert t2 > timestamp, "t2: {}, timestamp: {}".format(t2, timestamp)
 
-        q1 = quaternions[sign_switch_idx]
+        q1 = dl.quaternions[sign_switch_idx]
 
-        q2 = quaternions[sign_switch_idx + 1]
+        q2 = dl.quaternions[sign_switch_idx + 1]
         q_ = Quaternion.slerp(q1, q2, (timestamp - t1) / (t2 - t1))
         qs.append(q_.normalised)
     return qs 
 
-def get_quaternion(timestamp:int): 
-    time_diff = np.array(timestamps) - timestamp
+def get_quaternion(timestamp:int, dl:data_loader): 
+    time_diff = np.array(dl.timestamps) - timestamp
 
     sign_switch_idx = int(np.where(np.diff(np.sign(time_diff)))[0])
 
-    t1 = timestamps[sign_switch_idx]
-    t2 = timestamps[sign_switch_idx + 1]
+    t1 = dl.timestamps[sign_switch_idx]
+    t2 = dl.timestamps[sign_switch_idx + 1]
 
     assert t1 < timestamp, "t1: {}, timestamp: {}".format(t1, timestamp)
     assert t2 > timestamp, "t2: {}, timestamp: {}".format(t2, timestamp)
 
-    q1 = quaternions[sign_switch_idx]
-    q2 = quaternions[sign_switch_idx + 1]
+    q1 = dl.quaternions[sign_switch_idx]
+    q2 = dl.quaternions[sign_switch_idx + 1]
     q_ = Quaternion.slerp(q1, q2, (timestamp - t1) / (t2 - t1)).normalised
 
     return q_
 
-def compute_frames_KRK(timestamp:int, qs:list[Quaternion]): 
-    image = cv2.imread(f'{PATH}{str(timestamp)}.png', cv2.IMREAD_UNCHANGED)
+def compute_frames_KRK(timestamp:int, qs:list[Quaternion], dl:data_loader): 
+    image = cv2.imread(f'{dl.long_data_path}{str(timestamp)}.png', cv2.IMREAD_UNCHANGED)
     frames = []
 
     frames.append(image) 
@@ -98,26 +112,23 @@ def compute_frames_KRK(timestamp:int, qs:list[Quaternion]):
         q_delta = qs[i+1]/qs[i]  
         q_delta = q_delta.normalised 
         
-        #if i == 0: 
-        #    print(f'q_delta angle: {q_delta.angle} q_delta axis: {q_delta.axis}')
-        
         R_delta = q_delta.rotation_matrix #R2 @ np.linalg.inv(R1)
 
-        x_map = np.zeros((DIM[1], DIM[0]), dtype=np.float32)
-        y_map = np.zeros((DIM[1], DIM[0]), dtype=np.float32)
+        x_map = np.zeros((dl.cam.DIM[1], dl.cam.DIM[0]), dtype=np.float32)
+        y_map = np.zeros((dl.cam.DIM[1], dl.cam.DIM[0]), dtype=np.float32)
 
-        for y in range(DIM[1]):
-            for x in range(DIM[0]): 
+        for y in range(dl.cam.DIM[1]):
+            for x in range(dl.cam.DIM[0]): 
                 # undistort point
                 p0 = np.array([x, y], dtype=np.float32).reshape(1,1,2)
-                p0 = cv2.fisheye.undistortPoints(p0, CAM_K, CAM_D)
+                p0 = cv2.fisheye.undistortPoints(p0, dl.cam.K, dl.cam.D)
                 p0 = np.array([p0[0][0][0], p0[0][0][1], 1])
 
-                p = R_delta @ p0
+                p = np.linalg.inv(R_delta) @ p0
                 
                 # distort back point 
                 _p = np.array([p[0], p[1]]).reshape(1,1,2)
-                _p = cv2.fisheye.distortPoints(_p, CAM_K, CAM_D)
+                _p = cv2.fisheye.distortPoints(_p, dl.cam.K, dl.cam.D)
 
                 x_map[y,x] = _p[0][0][0]
                 y_map[y,x] = _p[0][0][1]
@@ -126,8 +137,8 @@ def compute_frames_KRK(timestamp:int, qs:list[Quaternion]):
         frames.append(image)
     return frames
 
-def create_frames(timestamp1:int, qs:list[Quaternion], results_path): 
-    frames = compute_frames_KRK(timestamp1, qs) #backward_frames # + forward_frames[1:] 
+def create_frames(timestamp1:int, qs:list[Quaternion], dl:data_loader): 
+    frames = compute_frames_KRK(timestamp1, qs, dl) #backward_frames # + forward_frames[1:] 
 
     avg_image = frames[0]
     for i in range(len(frames)):
@@ -138,7 +149,7 @@ def create_frames(timestamp1:int, qs:list[Quaternion], results_path):
             beta = 1.0 - alpha
             avg_image = cv2.addWeighted(frames[i], alpha, avg_image, beta, 0.0)
 
-    cv2.imwrite(f'{results_path}/{str(timestamp1)}_avg.png', avg_image)
+    cv2.imwrite(f'{dl.results_path}/{str(timestamp1)}_avg.png', avg_image)
 
 def nextnonexistent(f):
     fnew = f
@@ -149,9 +160,9 @@ def nextnonexistent(f):
         fnew = '%s_%i%s' % (root, i, ext)
     return fnew
 
-def create_list_of_quaternions(timestamp1:int, timestamp2:int, dt:float): 
-    q1 = get_quaternion(timestamp1)
-    q2 = get_quaternion(timestamp1-dt)
+def create_list_of_quaternions(timestamp1:int, timestamp2:int, dt:float, dl:data_loader): 
+    q1 = get_quaternion(timestamp1, dl)
+    q2 = get_quaternion(timestamp1-dt, dl)
     qs = get_mid_quaternion(q1,q2)
     return qs
 
@@ -163,27 +174,33 @@ def get_mid_quaternion(q1:Quaternion, q2:Quaternion, tol:float=1e-3):
     right_points = get_mid_quaternion(q_mid, q2)
     return left_points + right_points[1:]
 
-PATH = '/home/cm2113/workspace/thesis/datasets/tumvi_room1_512_16/data/' 
-#RESULT_PATH = './results'
-#RESULT_PATH = nextnonexistent(RESULT_PATH)
-#print(RESULT_PATH)
-#os.mkdir(RESULT_PATH)
-
-def create_frames_parallel(frame,quats, results_path):
+def create_frames_parallel(frame, quats, dl):
     timestamp = int(frame.replace(".png", ""))
-    create_frames(timestamp, quats[timestamp], results_path)
+    create_frames(timestamp, quats[timestamp], dl)
+
 
 def main():
-    frames = sorted(os.listdir(os.path.join(PATH)))
-    divisions = [8]
-    top_result_path = '/home/cm2113/workspace/thesis/results/tumvi_room1_blur'
-    if not os.path.exists(top_result_path):
-        os.mkdir(top_result_path)
+    parser = argparse.ArgumentParser(description='Blur image sequence using rotational data')
+    parser.add_argument('data', default='/tumvi/room/dataset-room1_512_16', type=str, help='the data folder in the dataset path, default=/tumvi/room/dataset-room1_512_16')
+    parser.add_argument('output', default='/home/cm2113/workspace/thesis/results/tumvi_room1_blur', type=str, help='the path in which the resulting frames should be stored')
+    parser.add_argument('div', default=[4], type=list[int], help='')
+
+    args = parser.parse_args()
+    data_sub_path = args.data 
+    top_result_path = args.output 
+    divisions = args.div 
+
+    # load data object
+    dl = data_loader(data_sub_path=data_sub_path, top_result_path=top_result_path)
+
+    # load frames from data folder 
+    frames = sorted(os.listdir(os.path.join(f'{DATASETS_PATH}{data_sub_path}{FRAMES_SUB_PATH}')))
 
     for div in divisions: 
-        results_path = f'{top_result_path}/tumvi_room1_512_16_blur_{div}'
+        results_path = f'{top_result_path}/{dl.dataset_name}_blur_{div}'
         results_path = nextnonexistent(results_path)
         os.mkdir(results_path)
+        dl.set_result_path = results_path
 
         quats = {}
         print(f'[INFO] Create list of quaternions for each image timeinterval devided by {div}, remember i=0 is the quats for the second image in the sequence')
@@ -191,17 +208,17 @@ def main():
             timestamp0 = int(frames[i].replace(".png", ""))
             timestamp1 = int(frames[i+1].replace(".png", ""))
             dt = (timestamp1-timestamp0)/div
-            qs = create_list_of_quaternions(timestamp1, timestamp0, dt)
+            qs = create_list_of_quaternions(timestamp1, timestamp0, dt, dl)
             quats[timestamp1] = qs
             
         print('[INFO] creating frames')
         # add first frame to the result folder - will not be blurred
-        shutil.copy(f'{PATH}{frames[0]}', f'{results_path}/{frames[0]}')
+        shutil.copy(f'{dl.long_data_path}{frames[0]}', f'{results_path}/{frames[0]}')
 
         with multiprocessing.Pool() as pool:
             results = []
             for frame in frames[1:]:
-                result = pool.apply_async(create_frames_parallel, args=(frame,quats,results_path,))
+                result = pool.apply_async(create_frames_parallel, args=(frame,quats,dl,))
                 results.append(result)
             for result in results:
                 result.wait()
@@ -214,34 +231,6 @@ def main():
 
 
 if __name__ == '__main__': 
-    # test distorsion model: 
-    test_distorsion = False 
-    if test_distorsion: 
-        image = cv2.imread('./image_sequence/1520530327850099100.png', cv2.IMREAD_UNCHANGED)
-        x_map = np.zeros((DIM[1], DIM[0]), dtype=np.float32)
-        y_map = np.zeros((DIM[1], DIM[0]), dtype=np.float32)
-        cv2.imshow('original', image)
-        for y in range(DIM[1]):
-            for x in range(DIM[0]): 
-                # undistort point
-                p0 = np.array([x, y], dtype=np.float32).reshape(1,1,2)
-                p0 = cv2.fisheye.undistortPoints(p0, CAM_K, CAM_D)
-                p0 = np.array([p0[0][0][0], p0[0][0][1], 1])
-                
-                p = p0
-                #p = R_delta @ p0
-                
-                # distort back point 
-                _p = np.array([p[0], p[1]]).reshape(1,1,2)
-                _p = cv2.fisheye.distortPoints(_p, CAM_K, CAM_D)
-
-                x_map[y,x] = _p[0][0][0]
-                y_map[y,x] = _p[0][0][1]
-
-        image = cv2.remap(image, x_map, y_map, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)
-        cv2.imshow('back to undistorted', image)
-        cv2.waitKey(0)
-        cv2.destroyAllWindows
     main()
 
 
