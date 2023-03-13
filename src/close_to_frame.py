@@ -9,13 +9,10 @@ import multiprocessing
 from load_camera import camera 
 import argparse
 
-# ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-# ------------------------------------------    ALL THIS IS SEQUENCE DEPENDENT ! --------------------------------------------------------------------------------------------------------------------------------------------------
 DATASETS_PATH = '/home/cm2113/workspace/Datasets'
 CAM_SUB_PATH = '/dso/camchain.yaml'
 TIME_SUB_PATH = '/mav0/mocap0/data.csv'
 FRAMES_SUB_PATH = '/mav0/cam0/data/'
-
 
 def load_gt_data(filename):
     data = pd.read_csv(filename).sort_values(by=['#timestamp [ns]']).rename(columns={' p_RS_R_x [m]':'p_x', ' p_RS_R_y [m]':'p_y', ' p_RS_R_z [m]':'p_z', ' q_RS_w []':'q_w', ' q_RS_x []':'q_x', ' q_RS_y []':'q_y', ' q_RS_z []':'q_z' })
@@ -45,12 +42,11 @@ def get_exosure_hash(filename):
     hash = {key: value for key, value in zip(timestamps, exp_times)}
     return hash
 
-#timestamps, position, quaternions = load_gt_data(f'{DATASETS_PATH}{DATA_SUB_PATH}{TIME_SUB_PATH}')
-
 class data_loader: 
     def __init__(self, data_sub_path:str, top_result_path:str): 
         # load essential data 
         self.timestamps, self.positions, self.quaternions = load_gt_data(f'{DATASETS_PATH}{data_sub_path}{TIME_SUB_PATH}') 
+        self.timepath = f'{DATASETS_PATH}{data_sub_path}{TIME_SUB_PATH}'
         self.cam = camera(f'{DATASETS_PATH}{data_sub_path}{CAM_SUB_PATH}')
         self.top_result_path = top_result_path
         if not os.path.exists(self.top_result_path):
@@ -60,17 +56,17 @@ class data_loader:
         self.long_data_path = f'{DATASETS_PATH}{data_sub_path}{FRAMES_SUB_PATH}'
     
     def __str__(self): 
-        return f'Timestamps: {self.timestamps[:10]}, Camera: {self.cam}, Dataset_name: {self.dataset_name}'
+        return f'Timestamps: {self.timestamps[:10]}, Camera: {self.cam}, Dataset_name: {self.dataset_name}, result_path: {self.result_path}, data path: {self.long_data_path} and time path: {self.timepath}'
     
     def set_result_path(self, result_path:str):
         self.result_path = result_path 
 
-# ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 def get_quaternions(timestamp:int, dt:float, n:int, dl:data_loader): 
     qs = []
     for i in range(n):
         timestamp += i*dt
         time_diff = dl.timestamps-timestamp
+        
         sign_switch_idx = int(np.where(np.diff(np.sign(time_diff)))[0]) 
 
         t1 = dl.timestamps[sign_switch_idx]
@@ -88,14 +84,16 @@ def get_quaternions(timestamp:int, dt:float, n:int, dl:data_loader):
 
 def get_quaternion(timestamp:int, dl:data_loader): 
     time_diff = np.array(dl.timestamps) - timestamp
-
-    sign_switch_idx = int(np.where(np.diff(np.sign(time_diff)))[0])
+    assert len(time_diff) == len(dl.timestamps), 'time_diff: {}, timestamps {}'.format(len(time_diff), len(dl.timestamps))
+    assert max(dl.timestamps) > timestamp, 'timestamp: {}, max: {}'.format(timestamp, max(dl.timestamps))
+    #print(np.where(np.diff(np.sign(time_diff)))[0])
+    sign_switch_idx = int(np.where(np.diff(np.sign(time_diff)))[0][0])
 
     t1 = dl.timestamps[sign_switch_idx]
     t2 = dl.timestamps[sign_switch_idx + 1]
 
-    assert t1 < timestamp, "t1: {}, timestamp: {}".format(t1, timestamp)
-    assert t2 > timestamp, "t2: {}, timestamp: {}".format(t2, timestamp)
+    assert t1 <= timestamp, "t1: {}, timestamp: {}".format(t1, timestamp)
+    assert t2 >= timestamp, "t2: {}, timestamp: {}".format(t2, timestamp)
 
     q1 = dl.quaternions[sign_switch_idx]
     q2 = dl.quaternions[sign_switch_idx + 1]
@@ -112,7 +110,7 @@ def compute_frames_KRK(timestamp:int, qs:list[Quaternion], dl:data_loader):
         q_delta = qs[i+1]/qs[i]  
         q_delta = q_delta.normalised 
         
-        R_delta = q_delta.rotation_matrix #R2 @ np.linalg.inv(R1)
+        R_delta = q_delta.rotation_matrix
 
         x_map = np.zeros((dl.cam.DIM[1], dl.cam.DIM[0]), dtype=np.float32)
         y_map = np.zeros((dl.cam.DIM[1], dl.cam.DIM[0]), dtype=np.float32)
@@ -138,7 +136,7 @@ def compute_frames_KRK(timestamp:int, qs:list[Quaternion], dl:data_loader):
     return frames
 
 def create_frames(timestamp1:int, qs:list[Quaternion], dl:data_loader): 
-    frames = compute_frames_KRK(timestamp1, qs, dl) #backward_frames # + forward_frames[1:] 
+    frames = compute_frames_KRK(timestamp1, qs, dl)
 
     avg_image = frames[0]
     for i in range(len(frames)):
@@ -148,8 +146,8 @@ def create_frames(timestamp1:int, qs:list[Quaternion], dl:data_loader):
             alpha = 1.0/(i + 1)
             beta = 1.0 - alpha
             avg_image = cv2.addWeighted(frames[i], alpha, avg_image, beta, 0.0)
-
-    cv2.imwrite(f'{dl.results_path}/{str(timestamp1)}_avg.png', avg_image)
+    #print(f'[INFO] saving image in dir {dl.result_path}...')
+    cv2.imwrite(f'{dl.result_path}/{str(timestamp1)}_avg.png', avg_image)
 
 def nextnonexistent(f):
     fnew = f
@@ -161,7 +159,9 @@ def nextnonexistent(f):
     return fnew
 
 def create_list_of_quaternions(timestamp1:int, timestamp2:int, dt:float, dl:data_loader): 
+    assert max(dl.timestamps) > timestamp1, '1. timestamp: {}, max: {}'.format(timestamp1, max(dl.timestamps))
     q1 = get_quaternion(timestamp1, dl)
+    assert max(dl.timestamps) > timestamp1-dt, '2. timestamp: {}, max: {}'.format(timestamp1-dt, max(dl.timestamps))
     q2 = get_quaternion(timestamp1-dt, dl)
     qs = get_mid_quaternion(q1,q2)
     return qs
@@ -181,9 +181,9 @@ def create_frames_parallel(frame, quats, dl):
 
 def main():
     parser = argparse.ArgumentParser(description='Blur image sequence using rotational data')
-    parser.add_argument('data', default='/tumvi/room/dataset-room1_512_16', type=str, help='the data folder in the dataset path, default=/tumvi/room/dataset-room1_512_16')
-    parser.add_argument('output', default='/home/cm2113/workspace/thesis/results/tumvi_room1_blur', type=str, help='the path in which the resulting frames should be stored')
-    parser.add_argument('div', default=[4], type=list[int], help='')
+    parser.add_argument('--data', default='/tumvi/room/dataset-room1_512_16', type=str, help='the data folder in the dataset path, default=/tumvi/room/dataset-room1_512_16')
+    parser.add_argument('--output', default='/home/cm2113/workspace/thesis/results/tumvi_room1_blur', type=str, help='the path in which the resulting frames should be stored')
+    parser.add_argument('--div', default=[4], type=list[int], help='')
 
     args = parser.parse_args()
     data_sub_path = args.data 
@@ -192,7 +192,6 @@ def main():
 
     # load data object
     dl = data_loader(data_sub_path=data_sub_path, top_result_path=top_result_path)
-
     # load frames from data folder 
     frames = sorted(os.listdir(os.path.join(f'{DATASETS_PATH}{data_sub_path}{FRAMES_SUB_PATH}')))
 
@@ -200,16 +199,22 @@ def main():
         results_path = f'{top_result_path}/{dl.dataset_name}_blur_{div}'
         results_path = nextnonexistent(results_path)
         os.mkdir(results_path)
-        dl.set_result_path = results_path
+        dl.set_result_path(result_path=results_path)
+        print(f'[INFO] the results will be saved in the following path {dl.result_path}')
 
         quats = {}
-        print(f'[INFO] Create list of quaternions for each image timeinterval devided by {div}, remember i=0 is the quats for the second image in the sequence')
+        print(f'[INFO] Create list of quaternions for each image timeinterval divided by {div}, remember i=0 is the quats for the second image in the sequence')
         for i in tqdm(range(len(frames)-1)): 
             timestamp0 = int(frames[i].replace(".png", ""))
             timestamp1 = int(frames[i+1].replace(".png", ""))
             dt = (timestamp1-timestamp0)/div
-            qs = create_list_of_quaternions(timestamp1, timestamp0, dt, dl)
-            quats[timestamp1] = qs
+            if timestamp1 <= max(dl.timestamps):
+                qs = create_list_of_quaternions(timestamp1, timestamp0, dt, dl)
+                quats[timestamp1] = qs
+            else:
+                print(f'\n[WARNING] since time for image {frames[i+1]} larger than the largest mocap time, it will be excluded!!')
+                frames.remove(frames[i+1])
+
             
         print('[INFO] creating frames')
         # add first frame to the result folder - will not be blurred
