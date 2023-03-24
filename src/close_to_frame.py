@@ -185,7 +185,7 @@ def main():
     args = parser.parse_args()
     data_sub_path = args.data 
     top_result_path = args.output 
-    divisions = [2,3,4,5,6,7,8] 
+    divisions = [2.5, 20] 
 
     # load data object
     dl = data_loader(data_sub_path=data_sub_path, top_result_path=top_result_path)
@@ -193,7 +193,8 @@ def main():
     frames = sorted(os.listdir(os.path.join(f'{DATASETS_PATH}{data_sub_path}{FRAMES_SUB_PATH}')))
     #print(divisions)
     for div in divisions: 
-        results_path = f'{top_result_path}/{dl.dataset_name}_blur_{div}'
+        div_name = str(div).replace('.','-')
+        results_path = f'{top_result_path}/{dl.dataset_name}_blur_{div_name}'
         results_path = nextnonexistent(results_path)
         os.mkdir(results_path)
         dl.set_result_path(result_path=results_path)
@@ -206,7 +207,7 @@ def main():
             timestamp1 = int(frames[i+1].replace(".png", ""))
             timestamp2 = int(frames[i+2].replace(".png", ""))
             dt1 = (timestamp1-timestamp0)/div
-            dt2 = (timestamp2-timestamp1)/div
+            dt2 = int(timestamp2-timestamp1)/div
             if timestamp1 <= max(dl.timestamps):
                 qs1 = create_list_of_quaternions(timestamp1, timestamp0, dt1, dl)
                 qs2 = create_list_of_quaternions(timestamp1, timestamp2, dt2, dl)
