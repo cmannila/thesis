@@ -2,6 +2,7 @@ import csv
 import numpy as np 
 import pandas as pd 
 from pyquaternion import Quaternion
+import subprocess as sub
 
 DATASETS_PATH = '/home/cm2113/workspace/Datasets'
 CAM_SUB_PATH =  '/dso/camchain.yaml'
@@ -19,7 +20,7 @@ def load_gt_data(filename):
 
     return timestamps, positions, quaternions
 
-timestamps, positions, quaternions = load_gt_data(f'{DATASETS_PATH}/tumvi/room/dataset-room1_512_16{TIME_SUB_PATH}') 
+timestamps, positions, quaternions = load_gt_data(f'{DATASETS_PATH}/tumvi/room/dataset-room2_512_16{TIME_SUB_PATH}') 
 print(f'len timestamps: {len(timestamps)}, len positions {len(positions)} and len quaternions {len(quaternions)}')
 
 T_imu_cam = np.array([-0.9995250378696743, 0.0075019185074052044, -0.02989013031643309, 0.045574835649698026, 
@@ -29,7 +30,8 @@ T_imu_cam = np.array([-0.9995250378696743, 0.0075019185074052044, -0.02989013031
 
 T_imu_cam = T_imu_cam.reshape((4,4))
 
-with open('gt_test.csv', 'w', encoding='utf-8') as f:
+file_name = 'gt_room2.csv'
+with open(file_name, 'w', encoding='utf-8') as f:
     #print('# timestamp tx ty tz qx qy qz qw', file=f)
     writer = csv.writer(f)
     writer.writerow('#timestamp [ns], p_RS_R_x [m], p_RS_R_y [m], p_RS_R_z [m], q_RS_w [], q_RS_x [], q_RS_y [], q_RS_z []'.split(','))

@@ -180,12 +180,12 @@ def main():
     parser = argparse.ArgumentParser(description='Blur image sequence using rotational data')
     parser.add_argument('--data', default='/tumvi/room/dataset-room1_512_16', type=str, help='the data folder in the dataset path, default=/tumvi/room/dataset-room1_512_16')
     parser.add_argument('--output', default='/home/cm2113/workspace/thesis/results/tumvi_room1_blur', type=str, help='the path in which the resulting frames should be stored')
-    parser.add_argument('--div', default=[2,3,4,5,6,7,8], type=float, help='')
+    parser.add_argument('--div', default=[2,2.5,3,4,5,6,7,8,20], type=float, help='')
 
     args = parser.parse_args()
     data_sub_path = args.data 
     top_result_path = args.output 
-    divisions = [2.5, 20] 
+    divisions = [2,2.5,3,4,5,6,7,8,20]
 
     # load data object
     dl = data_loader(data_sub_path=data_sub_path, top_result_path=top_result_path)
@@ -223,7 +223,7 @@ def main():
         shutil.copy(f'{dl.long_data_path}{frames[0]}', f'{results_path}/{frames[0]}')
         shutil.copy(f'{dl.long_data_path}{frames[-1]}', f'{results_path}/{frames[-1]}')
         
-        with multiprocessing.Pool() as pool:
+        with multiprocessing.Pool(11) as pool:
             results = []
             for frame in frames[1:]:
                 result = pool.apply_async(create_frames_parallel, args=(frame,quats,dl,))
