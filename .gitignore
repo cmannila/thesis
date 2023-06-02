@@ -11,6 +11,7 @@ old_src/results_from_testing_tuesday0703/
 old_src/results_from_testing_thursday0903/
 results/
 result_both/
+*.png 
 
 
 # OLD SOURCE ########
@@ -20,4 +21,6 @@ old_src/
 # Datasets ###########
 #####################
 datasets/
+
+
 
