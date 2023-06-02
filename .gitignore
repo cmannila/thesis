@@ -12,6 +12,9 @@ old_src/results_from_testing_thursday0903/
 results/
 result_both/
 *.png 
+*.csv
+*.txt 
+*.pgf 
 
 
 # OLD SOURCE ########
