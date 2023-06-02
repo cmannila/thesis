@@ -20,7 +20,7 @@ def load_gt_data(filename):
 
     return timestamps, positions, quaternions
 
-timestamps, positions, quaternions = load_gt_data(f'{DATASETS_PATH}/tumvi/room/dataset-room2_512_16{TIME_SUB_PATH}') 
+timestamps, positions, quaternions = load_gt_data(f'{DATASETS_PATH}/tumvi/room/dataset-room3_512_16{TIME_SUB_PATH}') 
 print(f'len timestamps: {len(timestamps)}, len positions {len(positions)} and len quaternions {len(quaternions)}')
 
 T_imu_cam = np.array([-0.9995250378696743, 0.0075019185074052044, -0.02989013031643309, 0.045574835649698026, 
@@ -30,7 +30,7 @@ T_imu_cam = np.array([-0.9995250378696743, 0.0075019185074052044, -0.02989013031
 
 T_imu_cam = T_imu_cam.reshape((4,4))
 
-file_name = 'gt_room2.csv'
+file_name = 'gt_room3.csv'
 with open(file_name, 'w', encoding='utf-8') as f:
     #print('# timestamp tx ty tz qx qy qz qw', file=f)
     writer = csv.writer(f)
