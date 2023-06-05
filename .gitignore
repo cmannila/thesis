@@ -11,6 +11,8 @@ old_src/results_from_testing_tuesday0703/
 old_src/results_from_testing_thursday0903/
 results/
 result_both/
+level_data/ 
+runs/ 
 *.png 
 *.csv
 *.txt 
@@ -26,5 +28,11 @@ old_src/
 #####################
 datasets/
 
+# OLD CODE ##########
+#####################
+src/renameFiles.py 
+src/jet_code.cpp
+src/multiple_runs_orbslam.py
+src/scale_analysis.py
 
 

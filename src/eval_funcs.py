@@ -82,8 +82,6 @@ def extract_results(data_folder,chop:int=0,align:str='sim3'):
             else: 
                 scale_error.append(data["scale"]['rmse'])
                 trans_error.append(data['trans']['rmse'])
-                
-            #print(f"run: {run}: trans rmse {data['trans']['rmse']}")
     return scale_error, trans_error
 
 def plot_data_fill(mean, std, x_vec, imu):
@@ -95,9 +93,10 @@ def plot_data_fill(mean, std, x_vec, imu):
     plt.xlabel('Time factor')
     plt.ylabel('Translational RMSE')
 
-def plot_all_sequences(data:dict, dataset:list=DATASETS_1, imu:list=['withimu', 'withoutimu']):
-    fig, ax = plt.subplots(2, 5, sharex='col', sharey='row', figsize=(25, 10))
-    plt.suptitle('Each sequence RMSE w.r.t run')
+def plot_all_sequences(data:dict, dataset:list[str]=DATASETS_1, imu:list[str]=['withimu', 'withoutimu']):
+    _, ax = plt.subplots(2, 5, sharex='col', sharey='row', figsize=(25, 10))
+    N = len(data[dataset[0]+imu[0]])
+    plt.suptitle(f'Each sequence RMS ATE w.r.t run - {N} runs')
     count = 0 
     max_val = 1 
     for i in range(2):
@@ -110,13 +109,14 @@ def plot_all_sequences(data:dict, dataset:list=DATASETS_1, imu:list=['withimu', 
                 max_val = max(data[f'{dataset[count]}{i_m_u}']) if max(data[f'{dataset[count]}{i_m_u}'])>max_val else max_val
             axis.legend()
             axis.set_xlabel('run') 
-            axis.set_ylabel('Translational RMSE')
+            axis.set_ylabel('RMS ATE [m]')
             axis.set_ylim(0,max_val)
             count += 1 
 
-def plot_all_percentiles(data:dict, dataset:list=DATASETS_1, imu:list=['withimu', 'withoutimu']):
-    fig, ax = plt.subplots(2, 5, sharex='col', sharey='row', figsize=(25, 10))
-    plt.suptitle('Each sequence RMSE w.r.t percentile - 50 runs')
+def plot_all_percentiles(data:dict, dataset:list[str]=DATASETS_1, imu:list[str]=['withimu', 'withoutimu']):
+    _, ax = plt.subplots(2, 5, sharex='col', sharey='row', figsize=(25, 10))
+    N = len(data[dataset[0]+imu[0]])
+    plt.suptitle(f'Each sequence RMS ATE w.r.t percentile - {N} runs')
     count = 0 
     max_val = 1 
     for i in range(2):
@@ -130,42 +130,34 @@ def plot_all_percentiles(data:dict, dataset:list=DATASETS_1, imu:list=['withimu'
                 max_val = max(pctiles) if max(pctiles)>max_val else max_val
             axis.legend()
             axis.set_xlabel('Percentile') 
-            axis.set_ylabel('Translational RMSE')
+            axis.set_ylabel('RMS ATE [m]')
             axis.set_ylim(0,max_val)
             count += 1 
             
-# at, only returning translational error statistics 
-def compute_results(imu, system, sub='', datasets=DATASETS_1, chop=0, outliers=True): 
-    res_s, res_t = {}, {}
-    std_s, std_t = {}, {}
+
+def compute_results(imu:list[str], system:str, sub:str='', datasets:list[str]=DATASETS_1, chop:int=0, outliers:bool=True): 
+    std_RMS_ATE, median_RMS_ATE = {}, {}
     runs = {}
-    #datasets = [dataset] if dataset else DATASETS_1 
     
     for i in imu: 
-        tot_s, tot_t = [], []
-        s_s, s_t = [], []
+        s_t, tot_t = [], []
+
         for dataset in datasets:
             data_folder = f'{path_to_results}/{dataset}/{system}/data{sub}/{i}'
             align = 'se3' if i=='withimu' else 'sim3' 
-            s, t = extract_results(data_folder, chop, align)
+            _, t = extract_results(data_folder, chop, align)
             if not outliers: 
                 t = remove_outliers(t, dataset+i)
             runs[dataset+i] = t
-            tot_s.append(np.median(s))
             tot_t.append(np.median(t))
-            s_s.append(np.std(s))
             s_t.append(np.std(t))
-        res_s[i] = tot_s 
-        res_t[i] = tot_t
-        std_s[i] = s_s 
-        std_t[i] = s_t
-    return res_t, std_t, runs 
+        median_RMS_ATE[i] = tot_t
+        std_RMS_ATE[i] = s_t
+    return median_RMS_ATE, std_RMS_ATE, runs 
 
-def get_scale_error(imu, system, sub='', datasets=DATASETS_1, chop=0,outliers=True): 
-    res_s = {}
-    std_s = {}
+def get_scale_error(imu:list[str], system:str, sub:str='', datasets:list[str]=DATASETS_1, chop:int=0,outliers:bool=True): 
+    std_SCALE_RMS, median_SCALE_RMS = {}, {}
     runs = {}
-    #datasets = [dataset] if dataset else DATASETS_1 
     
     for i in imu: 
         tot_s = []
@@ -173,15 +165,15 @@ def get_scale_error(imu, system, sub='', datasets=DATASETS_1, chop=0,outliers=Tr
         for dataset in datasets:
             data_folder = f'{path_to_results}/{dataset}/{system}/data{sub}/{i}'
             align = 'se3' if i=='withimu' else 'sim3' 
-            s, t = extract_results(data_folder, chop, align)
+            s, _ = extract_results(data_folder, chop, align)
             if not outliers: 
                 s = remove_outliers(s, dataset+i)
             runs[dataset+i] = s
             tot_s.append(np.median(s))
             s_s.append(np.std(s))
-        res_s[i] = tot_s 
-        std_s[i] = s_s 
-    return res_s, std_s, runs
+        median_SCALE_RMS[i] = tot_s 
+        std_SCALE_RMS[i] = s_s 
+    return median_SCALE_RMS, std_SCALE_RMS, runs
     
 def read_octaves(path:str):
     data = []
@@ -192,8 +184,10 @@ def read_octaves(path:str):
             data.append(values)
     return np.array(data)
 
-
-def extract_orbs(imu:str, system, sequence:str, sub='', chop=0,nocts=8):
+def extract_orbs(imu:str, system, sequence:str, sub:str='', chop:int=0):
+    """
+        Extract orbs data - PATH dependent!!! 
+    """
     octaves_runs = {}
     data_folder = f'{path_to_results}/{sequence}/{system}/data{sub}/{imu}'
     runs = sorted(os.listdir(data_folder))

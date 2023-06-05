@@ -4,7 +4,9 @@ from tqdm import tqdm
 import yaml
 from pathlib import Path
 
-
+""" 
+    Retrive old results to get the scaled data from DM VIO 
+"""
 sub = 'result_runs_pc_nexp'
 ds = [2,3]
 path_to_dmvio_results = '/home/cm2113/workspace/dm-vio/results/'
@@ -19,26 +21,14 @@ for d in ds:
 
         my_runs = {}
 
-        # for folder in result_folders[1:]: 
-        #     path = f'{path_to_dmvio_results}{folder}/setup/setup.yaml'
-        #     if os.path.exists(path):
-        #         print('hello')
-        #         with open(path) as f:
-        #             data = yaml.load(f, Loader=yaml.loader.FullLoader)
-        #             if data['eval_tool_command'] == cmd:
-        #                 print('FOUND IT')
-        #                 break
-
         for path in tqdm(list(Path(path_to_dmvio_results).glob(f"*{tum_vi}*/setup/setup.yaml"))):
             with path.open("r") as f:
                 data = yaml.load(f, Loader=yaml.loader.FullLoader)
-                # print(data['eval_tool_command'])
 
                 if data['eval_tool_command'].startswith(cmd):
                     i = int(data["eval_tool_command"].replace(cmd,"")[:2])
                     my_runs[i] = os.path.dirname(os.path.dirname(path))
-
-                
+    
             
         for k,v in sorted(list(my_runs.items()), key=lambda x: x[0]):
             path = v 
